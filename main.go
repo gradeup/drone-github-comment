@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
+	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
 )
@@ -36,6 +38,16 @@ type buildresp struct {
 	Stages []stagesresp `json:"stages"`
 }
 
+type githubToken struct {
+	Token string `json:"token"`
+}
+
+type payload struct {
+	iat time.Time
+	exp time.Time
+	iss string
+}
+
 func main() {
 	DRONE_PULL_REQUEST := os.Getenv("DRONE_PULL_REQUEST")
 	DRONE_REPO_OWNER := os.Getenv("DRONE_REPO_OWNER")
@@ -43,13 +55,62 @@ func main() {
 	DRONE_ACCESS_TOKEN := os.Getenv("DRONE_ACCESS_TOKEN")
 	DRONE_HOST := os.Getenv("DRONE_HOST")
 	DRONE_BUILD_NUMBER := os.Getenv("DRONE_BUILD_NUMBER")
-	GITHUB_ACCESS_TOKEN := os.Getenv("GITHUB_ACCESS_TOKEN")
+	GITHUB_INSTALLATION_ID := os.Getenv("GITHUB_INSTALLATION_ID")
+	GITHUB_APP_ID := os.Getenv("GITHUB_APP_ID")
+	PRIVATE_KEY := os.Getenv("PRIVATE_KEY")
 
 	var drone_msg string
+	key, _ := jwt.ParseRSAPrivateKeyFromPEM([]byte(PRIVATE_KEY))
 
-	url := "https://" + DRONE_HOST + "/api/repos/" + DRONE_REPO_OWNER + "/" + DRONE_REPO_NAME + "/builds/" + DRONE_BUILD_NUMBER
+	claims := &jwt.StandardClaims{
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(time.Minute).Unix(),
+		Issuer:    GITHUB_APP_ID,
+	}
+	bearer := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	ss, err := bearer.SignedString(key)
+	if err != nil {
+		fmt.Println("could not sign jwt: %s", err)
+		fmt.Println("Exiting Gracefully")
+		os.Exit(0)
+	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	url := "https://api.github.com/app/installations/" + GITHUB_INSTALLATION_ID + "/access_tokens"
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		fmt.Println(err.Error())
+		fmt.Println("Exiting Gracefully")
+		os.Exit(0)
+	}
+
+	req.Header.Add("Authorization", "Bearer "+ss)
+	req.Header.Add("Accept", "application/vnd.github.machine-man-preview+json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Println(err.Error())
+		fmt.Println("Exiting Gracefully")
+		os.Exit(0)
+	}
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println(err.Error())
+		fmt.Println("Exiting Gracefully")
+		os.Exit(0)
+	}
+	var token githubToken
+	err = json.Unmarshal(body, &token)
+	if err != nil {
+		fmt.Println(err.Error())
+		fmt.Println("Exiting Gracefully")
+		os.Exit(0)
+	}
+
+	url = "https://" + DRONE_HOST + "/api/repos/" + DRONE_REPO_OWNER + "/" + DRONE_REPO_NAME + "/builds/" + DRONE_BUILD_NUMBER
+
+	req, err = http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Println(err.Error())
 		fmt.Println("Exiting Gracefully")
@@ -58,7 +119,7 @@ func main() {
 
 	req.Header.Add("Authorization", "Bearer "+DRONE_ACCESS_TOKEN)
 
-	res, err := http.DefaultClient.Do(req)
+	res, err = http.DefaultClient.Do(req)
 	if err != nil {
 		fmt.Println(err.Error())
 		fmt.Println("Exiting Gracefully")
@@ -69,7 +130,7 @@ func main() {
 	var stageNumber int = 0
 	var stepNumber int = 0
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err = ioutil.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println(err.Error())
 		fmt.Println("Exiting Gracefully")
@@ -89,12 +150,10 @@ func main() {
 		os.Exit(0)
 	}
 	for _, stage := range myStoredVariable.Stages {
-		if stage.Status == "failure" {
-			for _, step := range stage.Steps {
-				if step.Status == "failure" {
-					stageNumber = stage.Number
-					stepNumber = step.Number
-				}
+		for _, step := range stage.Steps {
+			if step.Status == "failure" {
+				stageNumber = stage.Number
+				stepNumber = step.Number
 			}
 		}
 	}
@@ -132,13 +191,15 @@ func main() {
 		fmt.Println("Exiting Gracefully")
 		os.Exit(0)
 	}
+	drone_msg = "```bash"
 	for _, log := range logs {
-		drone_msg += log.Out + "<br>"
+		drone_msg += log.Out
 	}
-	fmt.Println(drone_msg)
+	drone_msg += "```"
+
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: GITHUB_ACCESS_TOKEN},
+		&oauth2.Token{AccessToken: token.Token, TokenType: "Bearer"},
 	)
 	tc := oauth2.NewClient(ctx, ts)
 
@@ -153,6 +214,7 @@ func main() {
 		fmt.Println("Exiting Gracefully")
 		os.Exit(0)
 	}
+
 	_, _, err = client.Issues.CreateComment(ctx, DRONE_REPO_OWNER, DRONE_REPO_NAME, drone_pr_no, &comment)
 	if err != nil {
 		fmt.Println(err.Error())
