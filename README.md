@@ -27,10 +27,10 @@ docker build .
 ## Usage
 
 Set the following using Environment variables or as secrets
-- GITHUB_APP_ID (38899) 
-- GITHUB_INSTALLATION_ID (https://github.com/apps/dronegitbot : Install and get your installation ID) 
-- PRIVATE_KEY (From Github App Installation)
-- DRONE_ACCESS_TOKEN (From your Drone login profile)
+- github_app_id (38899) 
+- github_installation_id (https://github.com/apps/dronegitbot : Install and get your installation ID) 
+- private_key (From Github App Installation)
+- drone_access_token (From your Drone login profile)
 
 ## Example Configuration
 
@@ -38,19 +38,14 @@ Set the following using Environment variables or as secrets
 - name: update-status-to-github
   image: codehimanshu/gitdrone:1.6
   environment:
-    DRONE_PULL_REQUEST: ${DRONE_PULL_REQUEST}
-    DRONE_REPO_OWNER: ${DRONE_REPO_NAMESPACE}
-    DRONE_REPO_NAME: ${DRONE_REPO_NAME}
     DRONE_ACCESS_TOKEN:
-      from_secret: DRONE_ACCESS_TOKEN
-    DRONE_HOST: ${DRONE_SYSTEM_HOST}
-    DRONE_BUILD_NUMBER: ${DRONE_BUILD_NUMBER}
+      from_secret: drone_access_token
     GITHUB_INSTALLATION_ID:
-      from_secret: GITHUB_INSTALLATION_ID
+      from_secret: github_installation_id
     GITHUB_APP_ID:
-      from_secret: GITHUB_APP_ID
+      from_secret: github_app_id
     PRIVATE_KEY:
-      from_secret: PRIVATE_KEY
+      from_secret: private_key
   when:
     status: [ failure ]
     event: pull_request
