@@ -37,14 +37,13 @@ Set the following using Environment variables or as secrets
 ```console
 - name: update-status-to-github
   image: codehimanshu/gitdrone:1.6
-  environment:
-    DRONE_ACCESS_TOKEN:
+  settings:
+    drone_access_token:
       from_secret: drone_access_token
-    GITHUB_INSTALLATION_ID:
+    github_installation_id:
       from_secret: github_installation_id
-    GITHUB_APP_ID:
-      from_secret: github_app_id
-    PRIVATE_KEY:
+    github_app_id: 38899
+    private_key:
       from_secret: private_key
   when:
     status: [ failure ]
